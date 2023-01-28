@@ -25,7 +25,7 @@ supported_currencies = None
 previously_found_coins = set()
 
 
-def get_announcement():
+def get_binance_announcement():
     """
     Retrieves new coin listing announcements
 
@@ -113,7 +113,7 @@ def get_last_coin():
     Returns new Symbol when appropriate
     """
     # scan Binance Announcement
-    latest_announcement = get_announcement()
+    latest_announcement = get_binance_announcement()
 
     # enable Kucoin Announcements if True in config
     if config["TRADE_OPTIONS"]["KUCOIN_ANNOUNCEMENTS"]:
