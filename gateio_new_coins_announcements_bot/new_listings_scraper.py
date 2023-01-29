@@ -24,43 +24,41 @@ supported_currencies = None
 
 previously_found_coins = set()
 
+binance_page_size = 0
 
 def get_binance_announcement():
     """
     Retrieves new coin listing announcements
 
     """
-    logger.debug("Pulling announcement page")
+    logger.debug("Pulling binance announcement page")
     # Generate random query/params to help prevent caching
-    rand_page_size = random.randint(1, 200)
-    letters = string.ascii_letters
-    random_string = "".join(random.choice(letters) for i in range(random.randint(10, 20)))
-    random_number = random.randint(1, 99999999999999999999)
+    global binance_page_size
+    if (binance_page_size >= 50):
+        binance_page_size = 1
+    else:
+        binance_page_size = binance_page_size + 1             
     queries = [
         "type=1",
         "catalogId=48",
         "pageNo=1",
-        f"pageSize={str(rand_page_size)}",
-        f"rnd={str(time.time())}",
-        f"{random_string}={str(random_number)}",
+        f"pageSize={str(binance_page_size)}"
     ]
     random.shuffle(queries)
-    logger.debug(f"Queries: {queries}")
-    request_url = (
-        f"https://www.binance.com/gateway-api/v1/public/cms/article/list/query"
-        f"?{queries[0]}&{queries[1]}&{queries[2]}&{queries[3]}&{queries[4]}&{queries[5]}"
-    )
+    request_url=f"https://www.binance.com/gateway-api/v1/public/cms/article/list/query?{queries[0]}&{queries[1]}&{queries[2]}&{queries[3]}"
+    logger.debug(f"request_url: {request_url}")
 
     latest_announcement = requests.get(request_url)
     if latest_announcement.status_code == 200:
         try:
-            logger.debug(f'X-Cache: {latest_announcement.headers["X-Cache"]}')
+            if ("Miss from cloudfront" not in latest_announcement.headers["X-Cache"]):
+                logger.debug(f'X-Cache (Binance): {latest_announcement.headers["X-Cache"]}', extra={"TELEGRAM": "ERROR"})
         except KeyError:
             # No X-Cache header was found - great news, we're hitting the source.
             pass
 
         latest_announcement = latest_announcement.json()
-        logger.debug("Finished pulling announcement page")
+        logger.debug("Finished pulling binance announcement page")
         return latest_announcement["data"]["catalogs"][0]["articles"][0]["title"]
     else:
         logger.error(f"Error pulling binance announcement page: {latest_announcement.status_code}")
@@ -72,7 +70,7 @@ def get_kucoin_announcement():
     Retrieves new coin listing announcements from Kucoin
 
     """
-    logger.debug("Pulling announcement page")
+    logger.debug("Pulling kucoin announcement page")
     # Generate random query/params to help prevent caching
     rand_page_size = random.randint(1, 200)
     letters = string.ascii_letters
@@ -87,21 +85,24 @@ def get_kucoin_announcement():
         f"{random_string}={str(random_number)}",
     ]
     random.shuffle(queries)
-    logger.debug(f"Queries: {queries}")
+    
     request_url = (
         f"https://www.kucoin.com/_api/cms/articles?"
-        f"?{queries[0]}&{queries[1]}&{queries[2]}&{queries[3]}&{queries[4]}&{queries[5]}"
-    )
+        f"?{queries[0]}&{queries[1]}&{queries[2]}&{queries[3]}&{queries[4]}&{queries[5]}")
+        
+    logger.debug(f"request_url: {request_url}")
+    
     latest_announcement = requests.get(request_url)
     if latest_announcement.status_code == 200:
         try:
-            logger.debug(f'X-Cache: {latest_announcement.headers["X-Cache"]}')
+            if ("Miss from cloudfront" not in latest_announcement.headers["X-Cache"]):
+                logger.debug(f'X-Cache (Kucoin): {latest_announcement.headers["X-Cache"]}', extra={"TELEGRAM": "ERROR"})            
         except KeyError:
             # No X-Cache header was found - great news, we're hitting the source.
             pass
 
         latest_announcement = latest_announcement.json()
-        logger.debug("Finished pulling announcement page")
+        logger.debug("Finished pulling kucoin announcement page")
         return latest_announcement["items"][0]["title"]
     else:
         logger.error(f"Error pulling kucoin announcement page: {latest_announcement.status_code}")
