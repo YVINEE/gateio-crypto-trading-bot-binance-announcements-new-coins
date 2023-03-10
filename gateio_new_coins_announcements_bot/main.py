@@ -5,6 +5,8 @@ import time
 from datetime import datetime
 import traceback
 import http.client as httpclient
+import signal
+import os
 
 import gateio_new_coins_announcements_bot.globals as globals
 from gateio_new_coins_announcements_bot.load_config import load_config
@@ -19,14 +21,6 @@ from gateio_new_coins_announcements_bot.store_order import store_order
 from gateio_new_coins_announcements_bot.trade_client import get_last_price
 from gateio_new_coins_announcements_bot.trade_client import place_order
 
-
-
-
-
-
-
-
-
 def buy():
     while not globals.stop_threads:
         logger.debug("Waiting for buy_ready event")
@@ -37,6 +31,9 @@ def buy():
         announcement_coin = globals.latest_listing
 
         global supported_currencies
+        global order
+        global sold_coins
+        global session
         if (
             announcement_coin
             and announcement_coin not in order
@@ -241,6 +238,10 @@ def sell():
         logger.debug("Waiting for sell_ready event")
         globals.sell_ready.wait()
         logger.debug("sell_ready event triggered")
+        global supported_currencies
+        global order
+        global sold_coins
+        global session
         if globals.stop_threads:
             break
         # check if the order file exists and load the current orders
@@ -434,6 +435,7 @@ def sell():
         else:
             logger.debug("Size of order is 0")
         time.sleep(3)
+
 def have_internet():
     conn = httpclient.HTTPSConnection("8.8.8.8", timeout=5)
     try:
@@ -443,8 +445,12 @@ def have_internet():
         return False
     finally:
         conn.close()
+        
+def handler(signal_received, frame):
+    raise KeyboardInterrupt
 
-
+signal.signal(signal.SIGINT, handler)        
+        
 def main():
     """
     Sells, adjusts TP and SL according to trailing values
@@ -456,79 +462,91 @@ def main():
         while (have_internet() == False and retry > 0):
             retry = retry - 1
             time.sleep(30)
+            
         if (have_internet() == False):
             raise Exception("No Internet Connexion")        
-        logger.info("Sniping bot is starting", extra={"TELEGRAM": "STARTUP"})
+        
+        pid = os.getpid()        
+        logger.info(f"Sniping bot is starting with pid = {pid}", extra={"TELEGRAM": "STARTUP"})
         # To add a coin to ignore, add it to the json array in old_coins.json
         globals.old_coins = load_old_coins()
         logger.debug(f"old_coins: {globals.old_coins}")
+
         # loads local configuration
         config = load_config("config.yml")
+
         # load necessary files
+        global sold_coins
         if os.path.isfile("sold.json"):
             sold_coins = load_order("sold.json")
         else:
             sold_coins = {}
+        global order
         if os.path.isfile("order.json"):
             order = load_order("order.json")
         else:
             order = {}
+
         # memory store for all orders for a specific coin
+        global session
         if os.path.isfile("session.json"):
             session = load_order("session.json")
         else:
             session = {}
+
         # Keep the supported currencies loaded in RAM so no time is wasted fetching
         # currencies.json from disk when an announcement is made
         logger.debug("Starting get_all_currencies")
+        global supported_currencies
         supported_currencies = get_all_currencies(single=True)
         logger.debug("Finished get_all_currencies")
+        
+        # Protection from stale announcement
+        latest_coin = get_last_coin()
+        if latest_coin:
+            globals.latest_listing = latest_coin
 
-    # Protection from stale announcement
-    latest_coin = get_last_coin()
-    if latest_coin:
-        globals.latest_listing = latest_coin
+        # store config deets
+        globals.quantity = config["TRADE_OPTIONS"]["QUANTITY"]
+        globals.tp = config["TRADE_OPTIONS"]["TP"]
+        globals.sl = config["TRADE_OPTIONS"]["SL"]
+        globals.enable_tsl = config["TRADE_OPTIONS"]["ENABLE_TSL"]
+        globals.tsl = config["TRADE_OPTIONS"]["TSL"]
+        globals.ttp = config["TRADE_OPTIONS"]["TTP"]
+        globals.pairing = config["TRADE_OPTIONS"]["PAIRING"]
+        globals.test_mode = config["TRADE_OPTIONS"]["TEST"]
 
-    # store config deets
-    globals.quantity = config["TRADE_OPTIONS"]["QUANTITY"]
-    globals.tp = config["TRADE_OPTIONS"]["TP"]
-    globals.sl = config["TRADE_OPTIONS"]["SL"]
-    globals.enable_tsl = config["TRADE_OPTIONS"]["ENABLE_TSL"]
-    globals.tsl = config["TRADE_OPTIONS"]["TSL"]
-    globals.ttp = config["TRADE_OPTIONS"]["TTP"]
-    globals.pairing = config["TRADE_OPTIONS"]["PAIRING"]
-    globals.test_mode = config["TRADE_OPTIONS"]["TEST"]
+        globals.stop_threads = False
+        globals.buy_ready.clear()
 
-    globals.stop_threads = False
-    globals.buy_ready.clear()
+        if not globals.test_mode:
+            logger.info("!!! LIVE MODE !!!")
 
-    if not globals.test_mode:
-        logger.info("!!! LIVE MODE !!!")
+        t_get_currencies_thread = threading.Thread(target=get_all_currencies)
+        t_get_currencies_thread.start()
+        t_buy_thread = threading.Thread(target=buy)
+        t_buy_thread.start()
+        t_sell_thread = threading.Thread(target=sell)
+        t_sell_thread.start()
 
-    t_get_currencies_thread = threading.Thread(target=get_all_currencies)
-    t_get_currencies_thread.start()
-    t_buy_thread = threading.Thread(target=buy)
-    t_buy_thread.start()
-    t_sell_thread = threading.Thread(target=sell)
-    t_sell_thread.start()
-
-    try:
-        search_and_update()
-    except KeyboardInterrupt:
-        logger.info("Stopping Threads")
-        globals.stop_threads = True
-        globals.buy_ready.set()
-        globals.sell_ready.set()
-        t_get_currencies_thread.join()
-        t_buy_thread.join()
-        t_sell_thread.join()
+        try:
+            search_and_update()
+        except KeyboardInterrupt:
+            logger.info("Stopping Threads")
+            globals.stop_threads = True
+            globals.buy_ready.set()
+            globals.sell_ready.set()
+            t_get_currencies_thread.join()
+            t_buy_thread.join()
+            t_sell_thread.join()
     except Exception :
         logger.error(traceback.format_exc(), extra={"TELEGRAM": "ERROR"})
+        if (have_internet() == False):
+            logger.info("Internet Problem, relaunch in 5 minutes", extra={"TELEGRAM": "END"})
+            time.sleep(300)
+            main()        
     logger.info("Sniping bot stopped", extra={"TELEGRAM": "END"})
-    if (have_internet() == False):
-        time.sleep(300)
-        main()
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":    
     main()

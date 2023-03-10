@@ -137,6 +137,7 @@ def get_last_coin():
         if (
             config["TRADE_OPTIONS"]["KUCOIN_ANNOUNCEMENTS"]
             and "Gets Listed" in kucoin_announcement
+            and len(kucoin_coin) > 0
             and kucoin_coin[0] != globals.latest_listing
             and kucoin_coin[0] not in previously_found_coins
         ):
@@ -182,7 +183,7 @@ def search_and_update():
             latest_coin = get_last_coin()
             if latest_coin:
                 store_new_listing(latest_coin)
-            elif globals.test_mode and os.path.isfile("test_new_listing.json"):
+            elif os.path.isfile("test_new_listing.json"):
                 store_new_listing(load_order("test_new_listing.json"))
                 if os.path.isfile("test_new_listing.json.used"):
                     os.remove("test_new_listing.json.used")
