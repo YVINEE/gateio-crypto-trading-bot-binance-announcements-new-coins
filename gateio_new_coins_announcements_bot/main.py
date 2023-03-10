@@ -41,7 +41,7 @@ def buy():
             and announcement_coin not in globals.old_coins
         ):
 
-            logger.info(f"New announcement detected: {announcement_coin}", extra={"TELEGRAM": "COIN_ANNOUNCEMENT"})
+            logger.info(f"New announcement detected: {announcement_coin} on the exchange {globals.latest_exchange_listing}", extra={"TELEGRAM": "COIN_ANNOUNCEMENT"})
 
             if not supported_currencies:
                 supported_currencies = get_all_currencies(single=True)
@@ -502,9 +502,10 @@ def main():
         logger.debug("Finished get_all_currencies")
         
         # Protection from stale announcement
-        latest_coin = get_last_coin()
+        latest_coin, exchange_latest_coin = get_last_coin()
         if latest_coin:
             globals.latest_listing = latest_coin
+            globals.latest_exchange_listing = exchange_latest_coin
 
         # store config deets
         globals.quantity = config["TRADE_OPTIONS"]["QUANTITY"]
